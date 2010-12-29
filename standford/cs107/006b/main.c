@@ -8,7 +8,7 @@ int main(){
 	
 	StackNew( &stack, sizeof(int) );
 	
-	int insert = 5;
+	int insert = 0;
 	int x;
 	for( x = 0; x < 1000; x++ ){
 		insert = x;
@@ -17,7 +17,7 @@ int main(){
 
 	printf( "Stack Size: %i\n", stack.logical_length );
 
-	int temp = 10;
+	int temp = 0;
 	for( x = 0; x < 500; x++ ){
 		StackPop( &stack, &temp );
 	}
