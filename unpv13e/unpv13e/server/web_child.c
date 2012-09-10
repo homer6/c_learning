@@ -8,6 +8,8 @@
 
 #include <assert.h>
 
+#include <time.h>
+
 
 #define	MAXN	16384		/* max # bytes client can request */
 
@@ -70,7 +72,8 @@ void respond_to_request( int sockfd, char *output, size_t output_size ){
 
     //convert the output size message body to a string
     char content_length[100];
-    sprintf( content_length, "%d", (int)output_size );
+    memset( (void*)content_length, 0, 100 );
+    snprintf( content_length, 100, "%d", (int)output_size );
     //printf( "buffer_size: %s\n", content_length );
 
     //create the response header
@@ -82,6 +85,9 @@ void respond_to_request( int sockfd, char *output, size_t output_size ){
     //write both the response header and the message body to the socket
     string_concat( &response, response_header, output );
     size_t response_length = strlen( response );
+
+
+    //printf( "Content Length: %d, Response Length: %d\n", output_size, response_length );
 
     Writen( sockfd, response, response_length );
 
@@ -113,32 +119,85 @@ void web_child( int sockfd ){
     size_t buffer_size = 0;
     size_t new_buffer_size = 0;
 
+    int flags = fcntl( sockfd, F_GETFL, 0 );
+    fcntl( sockfd, F_SETFL, flags | O_NONBLOCK );
+
+    int has_read_request = 0;
+    int ready_to_close = 0;
+
+    time_t last_request_time, current_time;
+
+    last_request_time = time( NULL );
+    current_time = time( NULL );
+
+
 	for ( ; ; ) {
 
-        if( (nread = Readline(sockfd, line, MAXLINE)) == 0 ){
-            break;		/* connection closed by other end */
+        nread = read( sockfd, line, MAXLINE );
+
+        if( nread == -1 ){
+
+            if( errno != EAGAIN ){
+                printf( "Error reading from socket.\n" );
+                break;
+            }
+
+            usleep( 50 );
+            nread = 0;
+
+            current_time = time( NULL );
+
+        }else{
+
+            last_request_time = time( NULL );
+            current_time = time( NULL );
+
         }
 
-        new_buffer_size += nread;
-        request_buffer = (char*) realloc( request_buffer, new_buffer_size * sizeof(char*) );
-        assert( request_buffer != NULL );
+        //10 second inactivity timeout before closing the tcp connection
+        if( current_time - last_request_time  >= 1 ){
+            ready_to_close = 1;
+        }
 
-        request_buffer_tail = request_buffer + buffer_size;
-        memcpy( request_buffer_tail, line, nread );
-        buffer_size = new_buffer_size;
+        //printf( "Number of bytes read: %d\n", nread );
+        //printf( "last_request_time: %d\n", last_request_time );
+        //printf( "current_time: %d\n", current_time );
+        //fflush( stdout );
 
-        first_character = (int)*line;
+        if( nread != 0 ){
 
-        if( first_character == 13 ){
-            respond_to_request( sockfd, request_buffer, buffer_size );
-            memset( request_buffer, 0, buffer_size );
-            buffer_size = 0;
-            new_buffer_size = 0;
+            new_buffer_size += nread;
+            request_buffer = (char*) realloc( request_buffer, new_buffer_size * sizeof(char*) );
+            assert( request_buffer != NULL );
+
+            request_buffer_tail = request_buffer + buffer_size;
+            memcpy( request_buffer_tail, line, nread );
+            buffer_size = new_buffer_size;
+
+            first_character = (int)*line;
+
+            //if( first_character == 13 ){
+                respond_to_request( sockfd, request_buffer, buffer_size );
+                memset( request_buffer, 0, buffer_size );
+                buffer_size = 0;
+                new_buffer_size = 0;
+                has_read_request = 1;
+            //}
+
+        }else{
+
+            //no bytes read
+            if( has_read_request == 1 ){ //&& ready_to_close == 1 ){
+                break;
+            }
+
         }
 
 	}
 
     free( request_buffer );
+
+    //close( sockfd );
 
 
 }

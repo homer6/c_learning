@@ -29,6 +29,7 @@ thread_main( void *arg ){
 		web_child(connfd);		/* process the request */
 
         Close(connfd);
+        //Close(connfd);
 	}
 
 }
